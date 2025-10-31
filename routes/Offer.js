@@ -31,6 +31,10 @@ router.post(
           message: "Please provide all requirements for Offer",
         });
       }
+
+      const { title, description, price, brand, size, condition, color, city } =
+        req.body;
+
       if (
         req.body.description.length > 500 ||
         req.body.title.length > 50 ||
@@ -48,19 +52,29 @@ router.post(
         `/vinted/offers/${newOfferId}/`
       );
 
+      let product_pictures = [];
+      if (Array.isArray(req.files.product_pictures)) {
+        const promisesAllPictures = req.files.product_pictures.map((picture) =>
+          binaryToCloudinaryImage(picture, `/vinted/offers/${newOfferId}/`)
+        );
+
+        product_pictures = await Promise.all(promisesAllPictures);
+      }
+
       const newOffer = new Offer({
         _id: newOfferId,
-        product_name: req.body.title,
-        product_description: req.body.description,
-        product_price: req.body.price,
+        product_name: title,
+        product_description: description,
+        product_price: price,
         product_details: [
-          { MARQUE: req.body.brand },
-          { TAILLE: req.body.size },
-          { ÉTAT: req.body.condition },
-          { COULEUR: req.body.color },
-          { EMPLACEMENT: req.body.city },
+          { MARQUE: brand },
+          { TAILLE: size },
+          { ÉTAT: condition },
+          { COULEUR: color },
+          { EMPLACEMENT: city },
         ],
         product_image: cloudinaryImage,
+        product_pictures: product_pictures,
         owner: req.user._id,
       });
 
@@ -94,12 +108,10 @@ router.put("/offers/:id", isAuthenticated, fileUpload(), async (req, res) => {
         message: "Please provide all requirements for Offer",
       });
     }
+    const { title, description, price, brand, size, condition, color, city } =
+      req.body;
 
-    if (
-      req.body.description.length > 500 ||
-      req.body.title.length > 50 ||
-      Number(req.body.price) > 100000
-    )
+    if (description.length > 500 || title.length > 50 || Number(price) > 100000)
       return res.status(400).json({
         success: false,
         message: "Invalid parameters",
@@ -108,23 +120,41 @@ router.put("/offers/:id", isAuthenticated, fileUpload(), async (req, res) => {
     const offer = await Offer.findById(req.params.id);
 
     if (!req.body.keepOfferImage) {
-      await deleteCloudinaryImage(offer.product_image);
+      //suppression des anciennes photos
+      let allImages = [];
+      if (Array.isArray(offer.product_picture)) {
+        allImages = offer.product_pictures.map(deleteCloudinaryImage);
+      }
+      allImages.push(deleteCloudinaryImage(offer.product_image));
+      await Promise.all(allImages);
+
       offer.product_image = undefined;
+      offer.product_picture = undefined;
+
+      // add images
       const cloudinaryImage = await binaryToCloudinaryImage(
         req?.files?.product_image,
         `/vinted/offers/${offer._id}/`
       );
       offer.product_image = cloudinaryImage;
+
+      if (Array.isArray(req.files.product_pictures)) {
+        const promisesAllPictures = req.files.product_pictures.map((picture) =>
+          binaryToCloudinaryImage(picture, `/vinted/offers/${newOfferId}/`)
+        );
+        offer.product_pictures = await Promise.all(promisesAllPictures);
+      }
     }
-    offer.product_name = req.body.title;
-    offer.product_description = req.body.description;
-    offer.product_price = req.body.price;
+
+    offer.product_name = title;
+    offer.product_description = description;
+    offer.product_price = price;
     offer.product_details = [
-      { MARQUE: req.body.brand },
-      { TAILLE: req.body.size },
-      { ÉTAT: req.body.condition },
-      { COULEUR: req.body.color },
-      { EMPLACEMENT: req.body.city },
+      { MARQUE: brand },
+      { TAILLE: size },
+      { ÉTAT: condition },
+      { COULEUR: color },
+      { EMPLACEMENT: city },
     ];
 
     await offer.save();
@@ -146,9 +176,12 @@ router.delete("/offers/:id", isAuthenticated, async (req, res) => {
     if (!deletedOffer)
       return res.status(404).json({ message: "Offer not found" });
 
-    if (deletedOffer?.product_image?.public_id) {
-      await deleteCloudinaryImage(deletedOffer.product_image);
+    let allImages = [];
+    if (Array.isArray(deletedOffer.product_pictures)) {
+      allImages = deletedOffer.product_pictures.map(deleteCloudinaryImage);
     }
+    allImages.push(deleteCloudinaryImage(deletedOffer.product_image));
+    await Promise.all(allImages);
 
     return res.json({ message: "Offer deleted" });
   } catch (error) {
@@ -158,7 +191,10 @@ router.delete("/offers/:id", isAuthenticated, async (req, res) => {
 
 router.get("/my_offers", isAuthenticated, async (req, res) => {
   return res.json(
-    await Offer.find({ owner: req.user._id }, "owner product_image")
+    await Offer.find(
+      { owner: req.user._id },
+      "owner product_image product_name product_price, product_pictures"
+    )
   );
 });
 router.get("/offers", async (req, res) => {
