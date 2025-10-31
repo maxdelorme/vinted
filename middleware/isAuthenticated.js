@@ -10,14 +10,14 @@ isAuthenticated = async (req, res, next) => {
     const token = req.headers.authorization.replace("Bearer ", "");
     const user = await User.findOne({ token: token });
 
+    if (!user)
+      return res.status(401).json({ message: "Authentication required" });
+
     if (
       compareAsc(user.tokenUpdateDate, subHours(new Date(), timeOutInHours)) ===
       -1
     )
       return res.status(401).json({ message: "Session Expired" });
-
-    if (!user)
-      return res.status(401).json({ message: "Authentication required" });
 
     if (req.user)
       return res
